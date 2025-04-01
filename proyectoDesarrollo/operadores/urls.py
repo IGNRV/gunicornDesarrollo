@@ -25,22 +25,14 @@ urlpatterns = [
     path('', include(router.urls)),
     path('docs/', include_docs_urls(title='Operadores API')),
 
-    # Nueva ruta manual para manejar GET y DELETE basados en el token en la URL
-    path(
-        'sesiones-activas-token/<str:token>/',
-        OperadorByTokenViewSet.as_view({'get': 'retrieve', 'delete': 'destroy'}),
-        name='sesiones-activas-token-detail'
-    ),
-    # NUEVA RUTA PARA GET con cookie
+    # Ruta ÚNICAMENTE para obtener la sesión activa usando la cookie "token"
     path(
         'sesiones-activas-token/',
         OperadorByTokenViewSet.as_view({'get': 'get_by_cookie'}),
         name='sesiones-activas-token-cookie'
     ),
 
-    # =========================================
-    # NUEVA RUTA PARA GET /operadores/logout/
-    # =========================================
+    # Ruta para cerrar sesión usando la cookie
     path(
         'logout/',
         OperadorViewSet.as_view({'get': 'logout'}),
