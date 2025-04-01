@@ -19,6 +19,7 @@ import jwt
 from django.conf import settings
 from datetime import datetime, timedelta
 from django.utils import timezone
+import secrets  # <--- Para generar hashes aleatorios (cod_verificacion)
 
 class OperadorViewSet(viewsets.ModelViewSet):
     queryset = Operador.objects.all()
@@ -83,10 +84,14 @@ class OperadorViewSet(viewsets.ModelViewSet):
                 empresa=op.empresa
             ).first()
 
+            # Generamos un hash aleatorio para cod_verificacion
+            random_hash = secrets.token_hex(16)
+
             if sesion_activa:
                 sesion_activa.sesion_id = str(nueva_sesion.id)
                 sesion_activa.fecha_registro = timezone.now()
                 sesion_activa.token = token_jwt
+                sesion_activa.cod_verificacion = random_hash  # <--- Añadimos el hash
                 sesion_activa.save()
             else:
                 SesionActiva.objects.create(
@@ -94,7 +99,8 @@ class OperadorViewSet(viewsets.ModelViewSet):
                     sesion_id=str(nueva_sesion.id),
                     fecha_registro=timezone.now(),
                     empresa=op.empresa,
-                    token=token_jwt
+                    token=token_jwt,
+                    cod_verificacion=random_hash  # <--- Añadimos el hash
                 )
 
             # 6) Retornamos la info del operador, pero el token va por cookie HttpOnly

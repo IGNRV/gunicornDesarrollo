@@ -196,10 +196,17 @@ class SesionActiva(models.Model):
     )
     fecha_registro = models.DateTimeField(default=timezone.now)
 
-    # =====================
-    # NUEVA COLUMNA "token"
-    # =====================
+    # Ya existente:
     token = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True
+    )
+
+    # ===================================
+    # NUEVA COLUMNA "cod_verificacion"
+    # ===================================
+    cod_verificacion = models.CharField(
         max_length=255,
         null=True,
         blank=True
