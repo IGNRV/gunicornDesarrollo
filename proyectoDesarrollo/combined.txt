@@ -1142,10 +1142,14 @@ class OperadorViewSet(viewsets.ModelViewSet):
             payload = {
                 'id': op.id,
                 'operador_id': op.operador_id,
-                'exp': datetime.utcnow() + timedelta(hours=24)  # Expira en 24 horas
+                # Expira en 24 horas
+                'exp': datetime.utcnow() + timedelta(hours=24)
             }
             token_jwt = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
-            data['token'] = token_jwt
+
+            # IMPORTANTE:
+            # Ya NO añadimos data['token'] = token_jwt,
+            # para no exponerlo en el JSON de respuesta.
 
             # 4) Insertar registro en "sesiones" (modelo Sesion)
             ip_address = request.META.get('REMOTE_ADDR', '') or request.META.get('HTTP_X_FORWARDED_FOR', '')
@@ -1181,7 +1185,23 @@ class OperadorViewSet(viewsets.ModelViewSet):
                     token=token_jwt
                 )
 
-            return Response(data, status=status.HTTP_200_OK)
+            # 6) Retornamos la info del operador, pero el token va por cookie HttpOnly
+            response = Response(data, status=status.HTTP_200_OK)
+
+            # Establecemos la cookie con el token. 
+            # - httponly=True impide que JavaScript lo lea (más seguro).
+            # - secure=True requiere HTTPS (recomendado en producción).
+            # Ajusta "max_age" y "samesite" a tus necesidades.
+            response.set_cookie(
+                key='token',
+                value=token_jwt,
+                httponly=True,
+                secure=True,      # Ponlo True si estás en HTTPS
+                max_age=24 * 3600, # 24 horas
+                samesite='None'    # o 'Strict' / 'Lax' según tu implementación
+            )
+
+            return response
 
         except Operador.DoesNotExist:
             return Response(
