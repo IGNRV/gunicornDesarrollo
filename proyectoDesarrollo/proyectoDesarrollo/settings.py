@@ -29,6 +29,7 @@ ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
     '35.222.2.211',
+    'desarrollo.smartgest.cl'
         # Ajusta con tu IP o dominio
 ]
 

@@ -24,10 +24,26 @@ router.register(r'sesiones-ejecutivos', SesionEjecutivoViewSet, basename='sesion
 urlpatterns = [
     path('', include(router.urls)),
     path('docs/', include_docs_urls(title='Operadores API')),
-    # Nueva ruta manual para manejar GET y DELETE basados en el token
+
+    # Nueva ruta manual para manejar GET y DELETE basados en el token en la URL
     path(
         'sesiones-activas-token/<str:token>/',
         OperadorByTokenViewSet.as_view({'get': 'retrieve', 'delete': 'destroy'}),
         name='sesiones-activas-token-detail'
+    ),
+    # NUEVA RUTA PARA GET con cookie
+    path(
+        'sesiones-activas-token/',
+        OperadorByTokenViewSet.as_view({'get': 'get_by_cookie'}),
+        name='sesiones-activas-token-cookie'
+    ),
+
+    # =========================================
+    # NUEVA RUTA PARA GET /operadores/logout/
+    # =========================================
+    path(
+        'logout/',
+        OperadorViewSet.as_view({'get': 'logout'}),
+        name='logout'
     ),
 ]

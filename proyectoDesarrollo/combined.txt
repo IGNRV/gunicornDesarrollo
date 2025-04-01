@@ -837,11 +837,17 @@ router.register(r'sesiones-ejecutivos', SesionEjecutivoViewSet, basename='sesion
 urlpatterns = [
     path('', include(router.urls)),
     path('docs/', include_docs_urls(title='Operadores API')),
-    # Nueva ruta manual para manejar GET y DELETE basados en el token
+    # Nueva ruta manual para manejar GET y DELETE basados en el token en la URL
     path(
         'sesiones-activas-token/<str:token>/',
         OperadorByTokenViewSet.as_view({'get': 'retrieve', 'delete': 'destroy'}),
         name='sesiones-activas-token-detail'
+    ),
+    # NUEVA RUTA PARA GET con cookie
+    path(
+        'sesiones-activas-token/',
+        OperadorByTokenViewSet.as_view({'get': 'get_by_cookie'}),
+        name='sesiones-activas-token-cookie'
     ),
 ]
 
@@ -1147,10 +1153,6 @@ class OperadorViewSet(viewsets.ModelViewSet):
             }
             token_jwt = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
 
-            # IMPORTANTE:
-            # Ya NO añadimos data['token'] = token_jwt,
-            # para no exponerlo en el JSON de respuesta.
-
             # 4) Insertar registro en "sesiones" (modelo Sesion)
             ip_address = request.META.get('REMOTE_ADDR', '') or request.META.get('HTTP_X_FORWARDED_FOR', '')
             if ',' in ip_address:
@@ -1187,16 +1189,11 @@ class OperadorViewSet(viewsets.ModelViewSet):
 
             # 6) Retornamos la info del operador, pero el token va por cookie HttpOnly
             response = Response(data, status=status.HTTP_200_OK)
-
-            # Establecemos la cookie con el token. 
-            # - httponly=True impide que JavaScript lo lea (más seguro).
-            # - secure=True requiere HTTPS (recomendado en producción).
-            # Ajusta "max_age" y "samesite" a tus necesidades.
             response.set_cookie(
                 key='token',
                 value=token_jwt,
                 httponly=True,
-                secure=True,      # Ponlo True si estás en HTTPS
+                secure=True,       # Ponlo True si estás en HTTPS
                 max_age=24 * 3600, # 24 horas
                 samesite='None'    # o 'Strict' / 'Lax' según tu implementación
             )
@@ -1250,33 +1247,58 @@ class SesionEjecutivoViewSet(viewsets.ModelViewSet):
     serializer_class = SesionEjecutivoSerializer
 
 
-# NUEVO: Vista para consultar datos de Operador a partir del token almacenado en SesionActiva
+# NUEVO: Vista para consultar datos de Operador a partir del token en la URL o en la cookie
 class OperadorByTokenViewSet(viewsets.ViewSet):
     """
     GET /operadores/sesiones-activas-token/{token}/
-    Busca el registro en SesionActiva cuyo token coincida y retorna la información del Operador.
+    - Busca el registro en SesionActiva cuyo token coincida y retorna la información de SesionActiva.
     DELETE /operadores/sesiones-activas-token/{token}/
-    Elimina el registro en SesionActiva que tenga el token indicado.
+    - Elimina el registro en SesionActiva que tenga el token indicado.
+    
+    GET /operadores/sesiones-activas-token/ (sin <token>)
+    - Toma el token desde la cookie "token" y retorna la información de SesionActiva si existe.
     """
+
     def retrieve(self, request, token=None):
+        # 1) Buscar la sesión activa por el token
         try:
             sesion_activa = SesionActiva.objects.get(token=token)
         except SesionActiva.DoesNotExist:
             return Response({"error": "Token no encontrado en sesiones activas"}, status=status.HTTP_404_NOT_FOUND)
-        try:
-            operador = Operador.objects.get(operador_id=sesion_activa.operador_id)
-        except Operador.DoesNotExist:
-            return Response({"error": "Operador no encontrado"}, status=status.HTTP_404_NOT_FOUND)
-        serializer = OperadorSerializer(operador)
+
+        # 2) Serializar la info de la SesionActiva y retornarla
+        serializer = SesionActivaSerializer(sesion_activa)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def destroy(self, request, token=None):
+        # 1) Buscar la sesión activa por el token
         try:
             sesion_activa = SesionActiva.objects.get(token=token)
         except SesionActiva.DoesNotExist:
             return Response({"error": "Token no encontrado en sesiones activas"}, status=status.HTTP_404_NOT_FOUND)
+
+        # 2) Eliminarla y retornar respuesta
         sesion_activa.delete()
         return Response({"message": "Sesion activa eliminada correctamente."}, status=status.HTTP_204_NO_CONTENT)
+
+    # NUEVA FUNCIÓN: GET sin token en la URL, se toma desde la cookie
+    def get_by_cookie(self, request):
+        # 1) Revisar la cookie "token"
+        token_cookie = request.COOKIES.get('token')
+        if not token_cookie:
+            return Response({"error": "No se encontró la cookie 'token' en la solicitud."},
+                            status=status.HTTP_401_UNAUTHORIZED)
+
+        # 2) Buscar la sesión activa
+        try:
+            sesion_activa = SesionActiva.objects.get(token=token_cookie)
+        except SesionActiva.DoesNotExist:
+            return Response({"error": "El token en la cookie no coincide con ninguna sesión activa."},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        # 3) Devolver la info de la SesionActiva
+        serializer = SesionActivaSerializer(sesion_activa)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 === ./operadores/models.py ===
@@ -1643,10 +1665,10 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
 from pathlib import Path
+import os  # <-- ¡Importante agregar esta línea!
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
@@ -1655,12 +1677,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-5bluxl5na1#wnt1576=xcs&#55w!p6l4#_-m1sjyfku2fa00v='
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = True  # Ponlo False en producción
 
-ALLOWED_HOSTS = ['35.222.2.211', 'localhost', 'desarrollo.smartgest.cl', '127.0.0.1']
-
-
-# Application definition
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1',
+    '35.222.2.211',
+    'desarrollo.smartgest.cl'
+        # Ajusta con tu IP o dominio
+]
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -1669,21 +1694,22 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'corsheaders',
+    # Terceros
     'rest_framework',
-    'coreapi',
-    'tasks',
+    'corsheaders',  # <-- Asegúrate de tenerlo instalado y aquí
+    # Tus apps
     'coreempresas',
     'configuracion',
     'operadores',
+    'tasks',
     'logs',
+    # etc...
 ]
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
+    'corsheaders.middleware.CorsMiddleware',  # <-- Importante que vaya antes de CommonMiddleware
     'django.middleware.common.CommonMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -1695,7 +1721,7 @@ ROOT_URLCONF = 'proyectoDesarrollo.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -1710,10 +1736,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'proyectoDesarrollo.wsgi.application'
 
-
-# Database
-# https://docs.djangoproject.com/en/5.1/ref/settings/#databases
-
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -1725,62 +1747,42 @@ DATABASES = {
     }
 }
 
-
-
-# Password validation
-# https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
-
-AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
-]
-
-
-# Internationalization
-# https://docs.djangoproject.com/en/5.1/topics/i18n/
-
-LANGUAGE_CODE = 'en-us'
-
-TIME_ZONE = 'UTC'
-
+LANGUAGE_CODE = 'es-cl'
+TIME_ZONE = 'America/Santiago'
 USE_I18N = True
-
+USE_L10N = True
 USE_TZ = True
 
-
 # Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.1/howto/static-files/
-
 STATIC_URL = '/static/'
-STATIC_ROOT = BASE_DIR / 'static'
+STATIC_ROOT = os.path.join(BASE_DIR, 'static')
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
+# ============================================
+# CORS CONFIGURATION PARA INCLUIR CREDENCIALES
+# ============================================
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:5173',      
+    'http://35.222.2.211:8000',
+    'http://0.0.0.0:5173',    
+    'http://0.0.0.0:8000',    
+]
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:5173',
+    'http://35.222.2.211:8000',
+    'http://0.0.0.0:5173',
+    'http://0.0.0.0:8000',
+]
 
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-
-# CORS configuration: solo se permite la IP 34.59.100.119
-#CORS_ALLOWED_ORIGINS = [
-#    "http://35.222.2.211",
-#    "http://localhost",
-#    "http://desarrollo.smartgest.cl",
-#    "http://127.0.0.1",
-#]
-
-CORS_ALLOW_ALL_ORIGINS = True
-
-# Configuración de DRF para usar el schema CoreAPI (que provee el método get_link)
 REST_FRAMEWORK = {
-    'DEFAULT_SCHEMA_CLASS': 'rest_framework.schemas.coreapi.AutoSchema',
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework.authentication.SessionAuthentication',
+        'rest_framework.authentication.BasicAuthentication',
+        # etc...
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.AllowAny',
+    ),
 }

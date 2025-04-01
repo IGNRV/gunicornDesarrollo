@@ -65,10 +65,6 @@ class OperadorViewSet(viewsets.ModelViewSet):
             }
             token_jwt = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
 
-            # IMPORTANTE:
-            # Ya NO añadimos data['token'] = token_jwt,
-            # para no exponerlo en el JSON de respuesta.
-
             # 4) Insertar registro en "sesiones" (modelo Sesion)
             ip_address = request.META.get('REMOTE_ADDR', '') or request.META.get('HTTP_X_FORWARDED_FOR', '')
             if ',' in ip_address:
@@ -105,16 +101,11 @@ class OperadorViewSet(viewsets.ModelViewSet):
 
             # 6) Retornamos la info del operador, pero el token va por cookie HttpOnly
             response = Response(data, status=status.HTTP_200_OK)
-
-            # Establecemos la cookie con el token. 
-            # - httponly=True impide que JavaScript lo lea (más seguro).
-            # - secure=True requiere HTTPS (recomendado en producción).
-            # Ajusta "max_age" y "samesite" a tus necesidades.
             response.set_cookie(
                 key='token',
                 value=token_jwt,
                 httponly=True,
-                secure=True,      # Ponlo True si estás en HTTPS
+                secure=True,       # Ponlo True si estás en HTTPS
                 max_age=24 * 3600, # 24 horas
                 samesite='None'    # o 'Strict' / 'Lax' según tu implementación
             )
@@ -126,6 +117,41 @@ class OperadorViewSet(viewsets.ModelViewSet):
                 {"error": "No existe un operador con esos datos"},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+    # =========================================
+    # NUEVO MÉTODO: GET /operadores/logout/
+    # =========================================
+    @action(detail=False, methods=['get'])
+    def logout(self, request):
+        """
+        GET /operadores/logout/
+        - Toma la cookie 'token' y elimina la fila en sesiones_activas cuyo token coincida.
+        """
+        # 1) Revisar la cookie "token"
+        token_cookie = request.COOKIES.get('token')
+        if not token_cookie:
+            return Response(
+                {"error": "No se encontró la cookie 'token' en la solicitud."},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # 2) Buscar la sesión activa con ese token
+        try:
+            sesion_activa = SesionActiva.objects.get(token=token_cookie)
+        except SesionActiva.DoesNotExist:
+            return Response(
+                {"error": "El token de la cookie no coincide con ninguna sesión activa."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 3) Eliminar la fila
+        sesion_activa.delete()
+
+        # 4) Opcional: eliminar la cookie del response
+        response = Response({"message": "Sesión eliminada correctamente."}, status=status.HTTP_200_OK)
+        response.delete_cookie('token')
+
+        return response
 
 
 class OperadorBodegaViewSet(viewsets.ModelViewSet):
@@ -168,30 +194,55 @@ class SesionEjecutivoViewSet(viewsets.ModelViewSet):
     serializer_class = SesionEjecutivoSerializer
 
 
-# NUEVO: Vista para consultar datos de Operador a partir del token almacenado en SesionActiva
+# NUEVO: Vista para consultar datos de Operador a partir del token en la URL o en la cookie
 class OperadorByTokenViewSet(viewsets.ViewSet):
     """
     GET /operadores/sesiones-activas-token/{token}/
-    Busca el registro en SesionActiva cuyo token coincida y retorna la información del Operador.
+    - Busca el registro en SesionActiva cuyo token coincida y retorna la información de SesionActiva.
     DELETE /operadores/sesiones-activas-token/{token}/
-    Elimina el registro en SesionActiva que tenga el token indicado.
+    - Elimina el registro en SesionActiva que tenga el token indicado.
+    
+    GET /operadores/sesiones-activas-token/ (sin <token>)
+    - Toma el token desde la cookie "token" y retorna la información de SesionActiva si existe.
     """
+
     def retrieve(self, request, token=None):
+        # 1) Buscar la sesión activa por el token
         try:
             sesion_activa = SesionActiva.objects.get(token=token)
         except SesionActiva.DoesNotExist:
             return Response({"error": "Token no encontrado en sesiones activas"}, status=status.HTTP_404_NOT_FOUND)
-        try:
-            operador = Operador.objects.get(operador_id=sesion_activa.operador_id)
-        except Operador.DoesNotExist:
-            return Response({"error": "Operador no encontrado"}, status=status.HTTP_404_NOT_FOUND)
-        serializer = OperadorSerializer(operador)
+
+        # 2) Serializar la info de la SesionActiva y retornarla
+        serializer = SesionActivaSerializer(sesion_activa)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def destroy(self, request, token=None):
+        # 1) Buscar la sesión activa por el token
         try:
             sesion_activa = SesionActiva.objects.get(token=token)
         except SesionActiva.DoesNotExist:
             return Response({"error": "Token no encontrado en sesiones activas"}, status=status.HTTP_404_NOT_FOUND)
+
+        # 2) Eliminarla y retornar respuesta
         sesion_activa.delete()
         return Response({"message": "Sesion activa eliminada correctamente."}, status=status.HTTP_204_NO_CONTENT)
+
+    # NUEVA FUNCIÓN: GET sin token en la URL, se toma desde la cookie
+    def get_by_cookie(self, request):
+        # 1) Revisar la cookie "token"
+        token_cookie = request.COOKIES.get('token')
+        if not token_cookie:
+            return Response({"error": "No se encontró la cookie 'token' en la solicitud."},
+                            status=status.HTTP_401_UNAUTHORIZED)
+
+        # 2) Buscar la sesión activa
+        try:
+            sesion_activa = SesionActiva.objects.get(token=token_cookie)
+        except SesionActiva.DoesNotExist:
+            return Response({"error": "El token en la cookie no coincide con ninguna sesión activa."},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        # 3) Devolver la info de la SesionActiva
+        serializer = SesionActivaSerializer(sesion_activa)
+        return Response(serializer.data, status=status.HTTP_200_OK)
