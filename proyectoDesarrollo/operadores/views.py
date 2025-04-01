@@ -19,7 +19,26 @@ import jwt
 from django.conf import settings
 from datetime import datetime, timedelta
 from django.utils import timezone
-import secrets  # <--- Para generar hashes aleatorios (cod_verificacion)
+import secrets  # Para generar hashes aleatorios (cod_verificacion)
+import requests # Para enviar el correo replicando la lógica del cURL en PHP
+
+def enviar_correo_python(remitente, correo_destino, asunto, detalle):
+    """
+    Réplica en Python de la función envia_correo() de PHP,
+    que hace un POST a http://mail.smartgest.cl/mailserver/server_mail.php
+    con los parámetros requeridos.
+    """
+    data = {
+        "destino": correo_destino,
+        "asunto": asunto,
+        "detalle": detalle,
+        "from": remitente
+    }
+    try:
+        resp = requests.post("http://mail.smartgest.cl/mailserver/server_mail.php", data=data)
+        # Se puede opcionalmente revisar resp.status_code, etc.
+    except Exception as e:
+        print(f"Error al enviar el correo: {e}")
 
 class OperadorViewSet(viewsets.ModelViewSet):
     queryset = Operador.objects.all()
@@ -91,7 +110,7 @@ class OperadorViewSet(viewsets.ModelViewSet):
                 sesion_activa.sesion_id = str(nueva_sesion.id)
                 sesion_activa.fecha_registro = timezone.now()
                 sesion_activa.token = token_jwt
-                sesion_activa.cod_verificacion = random_hash  # <--- Añadimos el hash
+                sesion_activa.cod_verificacion = random_hash
                 sesion_activa.save()
             else:
                 SesionActiva.objects.create(
@@ -100,10 +119,17 @@ class OperadorViewSet(viewsets.ModelViewSet):
                     fecha_registro=timezone.now(),
                     empresa=op.empresa,
                     token=token_jwt,
-                    cod_verificacion=random_hash  # <--- Añadimos el hash
+                    cod_verificacion=random_hash
                 )
 
-            # 6) Retornamos la info del operador, pero el token va por cookie HttpOnly
+            # 6) Enviamos el correo con el hash al correo (operador_id)
+            # Suponemos que 'operador_id' es el e-mail del usuario.
+            # Ajusta "remitente", "asunto" y el cuerpo 'detalle' a tu gusto.
+            asunto = "Código de Verificación"
+            detalle_mail = f"Hola, tu código de verificación es: {random_hash}"
+            enviar_correo_python("DM", op.operador_id, asunto, detalle_mail)
+
+            # 7) Retornamos la info del operador, pero el token va por cookie HttpOnly
             response = Response(data, status=status.HTTP_200_OK)
             response.set_cookie(
                 key='token',
