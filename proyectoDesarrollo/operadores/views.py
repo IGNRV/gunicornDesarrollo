@@ -123,8 +123,11 @@ class OperadorViewSet(viewsets.ModelViewSet):
         Recibe 'operador_id' y 'cod_verificacion'. Se debe mantener únicamente la
         sesión activa con la fecha más reciente para ese operador.
         Si el 'cod_verificacion' coincide con el de la sesión más reciente,
-        se elimina todas las demás filas (las más antiguas) para ese 'operador_id',
+        se eliminan todas las demás filas (las más antiguas) para ese 'operador_id',
         se envía la cookie con el token de la sesión más reciente y se devuelve un código 200.
+        Adicionalmente, se devuelven los siguientes datos del operador:
+          - operador_id, rut, nombres, apellido_paterno, apellido_materno, modificable,
+            email, estado, acceso_web, operador_administrador, grupo, empresa, superadmin, fecha_creacion.
         """
         operador_id = request.data.get('operador_id')
         cod_verificacion = request.data.get('cod_verificacion')
@@ -156,11 +159,41 @@ class OperadorViewSet(viewsets.ModelViewSet):
 
         token_jwt = sesion_reciente.token
 
-        # Eliminamos todas las sesiones activas para este operador, excepto la más reciente.
+        # Eliminamos todas las sesiones activas para este operador, excepto la de la sesión más reciente.
         SesionActiva.objects.filter(operador_id=operador_id).exclude(id=sesion_reciente.id).delete()
 
+        # Obtenemos los datos del operador.
+        try:
+            op = Operador.objects.get(operador_id=operador_id)
+        except Operador.DoesNotExist:
+            return Response(
+                {"error": "No se encontró el operador."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        operator_data = {
+            "operador_id": op.operador_id,
+            "rut": op.rut,
+            "nombres": op.nombres,
+            "apellido_paterno": op.apellido_paterno,
+            "apellido_materno": op.apellido_materno,
+            "modificable": op.modificable,
+            "email": op.email,
+            "estado": op.estado,
+            "acceso_web": op.acceso_web,
+            "operador_administrador": op.operador_administrador,
+            "grupo": op.grupo.id if op.grupo else None,
+            "empresa": op.empresa.id if op.empresa else None,
+            "superadmin": op.superadmin,
+            "fecha_creacion": op.fecha_creacion
+        }
+
         # Preparamos la respuesta, seteamos la cookie con el token de la sesión más reciente y retornamos.
-        response = Response({"message": "Verificación exitosa."}, status=status.HTTP_200_OK)
+        response_data = {
+            "message": "Verificación exitosa.",
+            "operador": operator_data
+        }
+        response = Response(response_data, status=status.HTTP_200_OK)
         response.set_cookie(
             key='token',
             value=token_jwt,
