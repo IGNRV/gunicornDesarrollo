@@ -22,6 +22,7 @@ from django.utils import timezone
 import secrets  # Para generar hashes aleatorios (cod_verificacion)
 import requests  # Para enviar el correo replicando la lógica del cURL en PHP
 
+
 def enviar_correo_python(remitente, correo_destino, asunto, detalle):
     """
     Función que replica la lógica del PHP para enviar correo.
@@ -39,6 +40,7 @@ def enviar_correo_python(remitente, correo_destino, asunto, detalle):
         # Opcional: se puede revisar resp.status_code, etc.
     except Exception as e:
         print(f"Error al enviar el correo: {e}")
+
 
 class OperadorViewSet(viewsets.ModelViewSet):
     queryset = Operador.objects.all()
@@ -137,7 +139,7 @@ class OperadorViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Obtenemos las sesiones activas para el operador, ordenadas de forma descendente por fecha_registro (la más reciente primero)
+        # Obtenemos las sesiones activas para el operador, ordenadas de forma descendente por fecha_registro
         sesiones = SesionActiva.objects.filter(
             operador_id=operador_id
         ).order_by('-fecha_registro')
@@ -159,7 +161,7 @@ class OperadorViewSet(viewsets.ModelViewSet):
 
         token_jwt = sesion_reciente.token
 
-        # Eliminamos todas las sesiones activas para este operador, excepto la de la sesión más reciente.
+        # Eliminamos todas las sesiones activas para este operador, excepto la más reciente.
         SesionActiva.objects.filter(operador_id=operador_id).exclude(id=sesion_reciente.id).delete()
 
         # Obtenemos los datos del operador.
@@ -230,37 +232,46 @@ class OperadorViewSet(viewsets.ModelViewSet):
         response.delete_cookie('token')
         return response
 
+
 class OperadorBodegaViewSet(viewsets.ModelViewSet):
     queryset = OperadorBodega.objects.all()
     serializer_class = OperadorBodegaSerializer
+
 
 class OperadorEmpresaModuloViewSet(viewsets.ModelViewSet):
     queryset = OperadorEmpresaModulo.objects.all()
     serializer_class = OperadorEmpresaModuloSerializer
 
+
 class OperadorEmpresaModuloMenuViewSet(viewsets.ModelViewSet):
     queryset = OperadorEmpresaModuloMenu.objects.all()
     serializer_class = OperadorEmpresaModuloMenuSerializer
+
 
 class OperadorGrupoViewSet(viewsets.ModelViewSet):
     queryset = OperadorGrupo.objects.all()
     serializer_class = OperadorGrupoSerializer
 
+
 class OperadorPuntoVentaViewSet(viewsets.ModelViewSet):
     queryset = OperadorPuntoVenta.objects.all()
     serializer_class = OperadorPuntoVentaSerializer
+
 
 class SesionViewSet(viewsets.ModelViewSet):
     queryset = Sesion.objects.all()
     serializer_class = SesionSerializer
 
+
 class SesionActivaViewSet(viewsets.ModelViewSet):
     queryset = SesionActiva.objects.all()
     serializer_class = SesionActivaSerializer
 
+
 class SesionEjecutivoViewSet(viewsets.ModelViewSet):
     queryset = SesionEjecutivo.objects.all()
     serializer_class = SesionEjecutivoSerializer
+
 
 class OperadorByTokenViewSet(viewsets.ViewSet):
     """
@@ -277,5 +288,26 @@ class OperadorByTokenViewSet(viewsets.ViewSet):
         except SesionActiva.DoesNotExist:
             return Response({"error": "El token en la cookie no coincide con ninguna sesión activa."},
                             status=status.HTTP_404_NOT_FOUND)
-        serializer = SesionActivaSerializer(sesion_activa)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+
+        # Se serializa la sesión activa
+        sesion_activa_data = SesionActivaSerializer(sesion_activa).data
+
+        # Buscamos al operador cuyos datos coincidan con "operador_id" en SesionActiva
+        try:
+            op = Operador.objects.get(operador_id=sesion_activa.operador_id)
+        except Operador.DoesNotExist:
+            return Response(
+                {"error": "No se encontró el operador relacionado a esta sesión activa."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Se serializa el operador para incluir todas sus columnas
+        operador_data = OperadorSerializer(op).data
+
+        # Combinamos ambos en la misma respuesta
+        combined_data = {
+            "sesion_activa": sesion_activa_data,
+            "operador_data": operador_data
+        }
+
+        return Response(combined_data, status=status.HTTP_200_OK)
