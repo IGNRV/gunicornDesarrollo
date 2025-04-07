@@ -23,6 +23,8 @@ from datetime import datetime, timedelta
 from django.utils import timezone
 import secrets  # Para generar hashes aleatorios (cod_verificacion)
 import requests  # Para enviar el correo replicando la lógica del cURL en PHP
+from django.db import connection  # <-- IMPORTANTE para ejecutar consultas SQL crudas
+import json  # <-- IMPORTANTE para serializar la lista de resultados a JSON
 
 def enviar_correo_python(remitente, correo_destino, asunto, detalle):
     """
@@ -281,11 +283,60 @@ class OperadorByTokenViewSet(viewsets.ViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        # Obtenemos los datos del operador
         operador_data = OperadorSerializer(op).data
 
+        # ---------------------------------------------------------------------
+        # EJECUTAMOS LA CONSULTA SQL USANDO EL VALOR DE "operador_data['id']"
+        # ---------------------------------------------------------------------
+        operator_id = operador_data['id']  # El ID real del operador en base de datos
+
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT c.nombre_menu, b.id, c.icon
+                FROM dm_sistema.operador_empresa_modulos AS a
+                JOIN dm_sistema.empresa_modulos AS b ON a.empresa_modulo_id = b.id
+                JOIN dm_sistema.modulos AS c ON b.modulo_id = c.id
+                WHERE a.operador_id = %s
+                  AND b.estado = 1
+                  AND c.estado = 1
+                  AND b.empresa_id = 1  -- Aquí está hardcodeado como en la consulta original
+                ORDER BY c.orden
+            """, [operator_id])
+            rows = cursor.fetchall()
+
+        # Convertimos el resultado en una lista de diccionarios
+        modulos_data = []
+        for row in rows:
+            modulos_data.append({
+                "nombre_menu": row[0],
+                "id": row[1],
+                "icon": row[2]
+            })
+
+        # Serializamos la lista a JSON para poder enviarla a través de la cookie
+        modulos_json = json.dumps(modulos_data)
+
+        # --------------------------------------------------------------------------------
+        # Se añade la clave "modulos_data" al JSON de la respuesta para verlo en la consola
+        # --------------------------------------------------------------------------------
         combined_data = {
             "sesion_activa": sesion_activa_data,
-            "operador_data": operador_data
+            "operador_data": operador_data,
+            "modulos_data": modulos_data  # <--- AHORA APARECERÁ EN LA RESPUESTA
         }
 
-        return Response(combined_data, status=status.HTTP_200_OK)
+        # Creamos la respuesta con combined_data, incluyendo modulos_data
+        response = Response(combined_data, status=status.HTTP_200_OK)
+
+        # Establecemos la cookie con los resultados de la consulta
+        response.set_cookie(
+            key='modulos',
+            value=modulos_json,  # Guardamos la lista en formato JSON
+            httponly=True,
+            secure=True,
+            max_age=24 * 3600,
+            samesite='None'
+        )
+
+        return response
