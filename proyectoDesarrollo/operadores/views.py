@@ -123,7 +123,7 @@ class OperadorViewSet(viewsets.ModelViewSet):
         Si el 'cod_verificacion' coincide con la de la sesión más reciente:
          - Se eliminan todas las demás filas.
          - Se envía la cookie con el token de la sesión.
-         - Se retorna un código 200 con datos del operador.
+         - Se retorna un código 200 con datos del operador (incluyendo "modulos" inmediatamente).
         """
         operador_id = request.data.get('operador_id')
         cod_verificacion = request.data.get('cod_verificacion')
@@ -153,6 +153,7 @@ class OperadorViewSet(viewsets.ModelViewSet):
 
         token_jwt = sesion_reciente.token
 
+        # Eliminar todas las demás sesiones activas excepto la más reciente
         SesionActiva.objects.filter(operador_id=operador_id).exclude(id=sesion_reciente.id).delete()
 
         try:
@@ -180,9 +181,37 @@ class OperadorViewSet(viewsets.ModelViewSet):
             "fecha_creacion": op.fecha_creacion
         }
 
+        # -------------------------------------------------------------------
+        # AÑADIMOS AQUÍ la consulta que antes se veía solo en "get_by_cookie"
+        # De esta manera, en cuanto se verifica y se setea la cookie,
+        # retornamos inmediatamente la información de "modulos".
+        # -------------------------------------------------------------------
+        modulos = []
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT c.nombre_menu, b.id, c.icon
+                FROM dm_sistema.operador_empresa_modulos AS a
+                JOIN dm_sistema.empresa_modulos AS b ON a.empresa_modulo_id = b.id
+                JOIN dm_sistema.modulos AS c ON b.modulo_id = c.id
+                WHERE a.operador_id = %s
+                  AND b.estado = 1
+                  AND c.estado = 1
+                  AND b.empresa_id = %s
+                ORDER BY c.orden
+            """, [op.id, op.empresa.id])
+            rows = cursor.fetchall()
+            for row in rows:
+                modulos.append({
+                    "nombre_menu": row[0],
+                    "id": row[1],
+                    "icon": row[2]
+                })
+        # -------------------------------------------------------------------
+
         response_data = {
             "message": "Verificación exitosa.",
-            "operador": operator_data
+            "operador": operator_data,
+            "modulos": modulos  # <-- Se devuelven los módulos también
         }
         response = Response(response_data, status=status.HTTP_200_OK)
         response.set_cookie(
