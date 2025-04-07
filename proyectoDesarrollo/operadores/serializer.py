@@ -4,7 +4,8 @@ from rest_framework import serializers
 from .models import (
     Operador, OperadorBodega, OperadorEmpresaModulo, 
     OperadorEmpresaModuloMenu, OperadorGrupo, OperadorPuntoVenta,
-    Sesion, SesionActiva, SesionEjecutivo
+    Sesion, SesionActiva
+    # SesionEjecutivo ya NO existe
 )
 
 class OperadorSerializer(serializers.ModelSerializer):
@@ -47,7 +48,4 @@ class SesionActivaSerializer(serializers.ModelSerializer):
         model = SesionActiva
         fields = '__all__'
 
-class SesionEjecutivoSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = SesionEjecutivo
-        fields = '__all__'
+# Se elimina la clase SesionEjecutivoSerializer, ya que no existe el modelo

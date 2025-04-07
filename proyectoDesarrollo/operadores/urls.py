@@ -7,7 +7,9 @@ from rest_framework.documentation import include_docs_urls
 from .views import (
     OperadorViewSet, OperadorBodegaViewSet, OperadorEmpresaModuloViewSet,
     OperadorEmpresaModuloMenuViewSet, OperadorGrupoViewSet, OperadorPuntoVentaViewSet,
-    SesionViewSet, SesionActivaViewSet, SesionEjecutivoViewSet, OperadorByTokenViewSet
+    SesionViewSet, SesionActivaViewSet,
+    # Eliminado: SesionEjecutivoViewSet
+    OperadorByTokenViewSet
 )
 
 router = routers.DefaultRouter()
@@ -19,20 +21,18 @@ router.register(r'operadores-grupos', OperadorGrupoViewSet, basename='operadores
 router.register(r'operadores-punto-venta', OperadorPuntoVentaViewSet, basename='operadores-punto-venta')
 router.register(r'sesiones', SesionViewSet, basename='sesiones')
 router.register(r'sesiones-activas', SesionActivaViewSet, basename='sesiones-activas')
-router.register(r'sesiones-ejecutivos', SesionEjecutivoViewSet, basename='sesiones-ejecutivos')
+# Se elimina la línea:
+# router.register(r'sesiones-ejecutivos', SesionEjecutivoViewSet, basename='sesiones-ejecutivos')
 
 urlpatterns = [
     path('', include(router.urls)),
     path('docs/', include_docs_urls(title='Operadores API')),
 
-    # Ruta ÚNICAMENTE para obtener la sesión activa usando la cookie "token"
     path(
         'sesiones-activas-token/',
         OperadorByTokenViewSet.as_view({'get': 'get_by_cookie'}),
         name='sesiones-activas-token-cookie'
     ),
-
-    # Ruta para cerrar sesión usando la cookie
     path(
         'logout/',
         OperadorViewSet.as_view({'get': 'logout'}),

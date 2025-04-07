@@ -7,12 +7,14 @@ from rest_framework.response import Response
 from .models import (
     Operador, OperadorBodega, OperadorEmpresaModulo,
     OperadorEmpresaModuloMenu, OperadorGrupo, OperadorPuntoVenta,
-    Sesion, SesionActiva, SesionEjecutivo
+    Sesion, SesionActiva
+    # SesionEjecutivo ya NO existe
 )
 from .serializer import (
     OperadorSerializer, OperadorBodegaSerializer, OperadorEmpresaModuloSerializer,
     OperadorEmpresaModuloMenuSerializer, OperadorGrupoSerializer, OperadorPuntoVentaSerializer,
-    SesionSerializer, SesionActivaSerializer, SesionEjecutivoSerializer
+    SesionSerializer, SesionActivaSerializer
+    # SesionEjecutivoSerializer eliminado
 )
 
 import jwt
@@ -21,7 +23,6 @@ from datetime import datetime, timedelta
 from django.utils import timezone
 import secrets  # Para generar hashes aleatorios (cod_verificacion)
 import requests  # Para enviar el correo replicando la lógica del cURL en PHP
-
 
 def enviar_correo_python(remitente, correo_destino, asunto, detalle):
     """
@@ -40,7 +41,6 @@ def enviar_correo_python(remitente, correo_destino, asunto, detalle):
         # Opcional: se puede revisar resp.status_code, etc.
     except Exception as e:
         print(f"Error al enviar el correo: {e}")
-
 
 class OperadorViewSet(viewsets.ModelViewSet):
     queryset = Operador.objects.all()
@@ -65,22 +65,17 @@ class OperadorViewSet(viewsets.ModelViewSet):
             )
 
         try:
-            # 1) Verificamos si existe el Operador con esos datos.
             op = Operador.objects.get(operador_id=operador_id, clear=clear)
 
-            # 2) Construimos un diccionario de respuesta limitado al 'operador_id'.
             response_data = {"operador_id": op.operador_id}
 
-            # 3) Generamos el token JWT.
             payload = {
                 'id': op.id,
                 'operador_id': op.operador_id,
-                # Expira en 24 horas.
                 'exp': datetime.utcnow() + timedelta(hours=24)
             }
             token_jwt = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
 
-            # 4) Insertar registro en "sesiones" (modelo Sesion).
             ip_address = request.META.get('REMOTE_ADDR', '') or request.META.get('HTTP_X_FORWARDED_FOR', '')
             if ',' in ip_address:
                 ip_address = ip_address.split(',')[0].strip()
@@ -92,8 +87,6 @@ class OperadorViewSet(viewsets.ModelViewSet):
                 empresa=op.empresa
             )
 
-            # 5) Insertar una NUEVA fila en "sesiones_activas" (sin eliminar filas previas).
-            # Generamos un hash aleatorio para cod_verificacion.
             random_hash = secrets.token_hex(16)
             SesionActiva.objects.create(
                 operador_id=op.operador_id,
@@ -104,12 +97,10 @@ class OperadorViewSet(viewsets.ModelViewSet):
                 cod_verificacion=random_hash
             )
 
-            # 6) Enviamos el correo con el hash al correo (se asume que 'operador_id' es el email).
             asunto = "Código de Verificación"
             detalle_mail = f"Hola, tu código de verificación es: {random_hash}"
             enviar_correo_python("DM", op.operador_id, asunto, detalle_mail)
 
-            # 7) Devolvemos solo el operador_id sin enviar la cookie ni el token.
             return Response(response_data, status=status.HTTP_200_OK)
 
         except Operador.DoesNotExist:
@@ -123,13 +114,11 @@ class OperadorViewSet(viewsets.ModelViewSet):
         """
         POST /operadores/operadores/verificar/
         Recibe 'operador_id' y 'cod_verificacion'. Se debe mantener únicamente la
-        sesión activa con la fecha más reciente para ese operador.
-        Si el 'cod_verificacion' coincide con el de la sesión más reciente,
-        se eliminan todas las demás filas (las más antiguas) para ese 'operador_id',
-        se envía la cookie con el token de la sesión más reciente y se devuelve un código 200.
-        Adicionalmente, se devuelven los siguientes datos del operador:
-          - operador_id, rut, nombres, apellido_paterno, apellido_materno, modificable,
-            email, estado, acceso_web, operador_administrador, grupo, empresa, superadmin, fecha_creacion.
+        sesión activa más reciente para ese operador.
+        Si el 'cod_verificacion' coincide con la de la sesión más reciente:
+         - Se eliminan todas las demás filas.
+         - Se envía la cookie con el token de la sesión.
+         - Se retorna un código 200 con datos del operador.
         """
         operador_id = request.data.get('operador_id')
         cod_verificacion = request.data.get('cod_verificacion')
@@ -139,7 +128,6 @@ class OperadorViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Obtenemos las sesiones activas para el operador, ordenadas de forma descendente por fecha_registro
         sesiones = SesionActiva.objects.filter(
             operador_id=operador_id
         ).order_by('-fecha_registro')
@@ -150,7 +138,6 @@ class OperadorViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # La sesión más reciente:
         sesion_reciente = sesiones.first()
 
         if sesion_reciente.cod_verificacion != cod_verificacion:
@@ -161,10 +148,8 @@ class OperadorViewSet(viewsets.ModelViewSet):
 
         token_jwt = sesion_reciente.token
 
-        # Eliminamos todas las sesiones activas para este operador, excepto la más reciente.
         SesionActiva.objects.filter(operador_id=operador_id).exclude(id=sesion_reciente.id).delete()
 
-        # Obtenemos los datos del operador.
         try:
             op = Operador.objects.get(operador_id=operador_id)
         except Operador.DoesNotExist:
@@ -190,7 +175,6 @@ class OperadorViewSet(viewsets.ModelViewSet):
             "fecha_creacion": op.fecha_creacion
         }
 
-        # Preparamos la respuesta, seteamos la cookie con el token de la sesión más reciente y retornamos.
         response_data = {
             "message": "Verificación exitosa.",
             "operador": operator_data
@@ -200,7 +184,7 @@ class OperadorViewSet(viewsets.ModelViewSet):
             key='token',
             value=token_jwt,
             httponly=True,
-            secure=True,       # Ajustar a True en producción con HTTPS.
+            secure=True,
             max_age=24 * 3600,
             samesite='None'
         )
@@ -210,7 +194,7 @@ class OperadorViewSet(viewsets.ModelViewSet):
     def logout(self, request):
         """
         GET /operadores/logout/
-        - Toma la cookie 'token' y elimina la fila en sesiones_activas cuyo token coincida.
+        - Elimina la fila en sesiones_activas cuyo token coincida con la cookie 'token'.
         """
         token_cookie = request.COOKIES.get('token')
         if not token_cookie:
@@ -268,15 +252,13 @@ class SesionActivaViewSet(viewsets.ModelViewSet):
     serializer_class = SesionActivaSerializer
 
 
-class SesionEjecutivoViewSet(viewsets.ModelViewSet):
-    queryset = SesionEjecutivo.objects.all()
-    serializer_class = SesionEjecutivoSerializer
+# Se elimina la clase SesionEjecutivoViewSet
 
 
 class OperadorByTokenViewSet(viewsets.ViewSet):
     """
-    Sólo permite obtener la sesión activa leyendo la cookie 'token':
-    GET /operadores/sesiones-activas-token/  (sin <token>)
+    GET /operadores/sesiones-activas-token/
+    Obtiene la sesión activa leyendo la cookie 'token'.
     """
     def get_by_cookie(self, request):
         token_cookie = request.COOKIES.get('token')
@@ -289,10 +271,8 @@ class OperadorByTokenViewSet(viewsets.ViewSet):
             return Response({"error": "El token en la cookie no coincide con ninguna sesión activa."},
                             status=status.HTTP_404_NOT_FOUND)
 
-        # Se serializa la sesión activa
         sesion_activa_data = SesionActivaSerializer(sesion_activa).data
 
-        # Buscamos al operador cuyos datos coincidan con "operador_id" en SesionActiva
         try:
             op = Operador.objects.get(operador_id=sesion_activa.operador_id)
         except Operador.DoesNotExist:
@@ -301,10 +281,8 @@ class OperadorByTokenViewSet(viewsets.ViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # Se serializa el operador para incluir todas sus columnas
         operador_data = OperadorSerializer(op).data
 
-        # Combinamos ambos en la misma respuesta
         combined_data = {
             "sesion_activa": sesion_activa_data,
             "operador_data": operador_data

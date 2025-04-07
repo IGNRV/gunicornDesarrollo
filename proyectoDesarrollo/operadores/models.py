@@ -196,16 +196,11 @@ class SesionActiva(models.Model):
     )
     fecha_registro = models.DateTimeField(default=timezone.now)
 
-    # Ya existente:
     token = models.CharField(
         max_length=255,
         null=True,
         blank=True
     )
-
-    # ===================================
-    # NUEVA COLUMNA "cod_verificacion"
-    # ===================================
     cod_verificacion = models.CharField(
         max_length=255,
         null=True,
@@ -221,29 +216,3 @@ class SesionActiva(models.Model):
 
     def __str__(self):
         return f'Sesion Activa {self.id}'
-
-
-class SesionEjecutivo(models.Model):
-    fecha = models.DateTimeField()
-    id_ejecutivo = models.IntegerField()
-    rut_ejecutivo = models.CharField(max_length=50, null=True, blank=True)
-    id_operador = models.CharField(max_length=50, null=True, blank=True)
-    portal = models.CharField(max_length=255, null=True, blank=True)
-    id_empresa = models.ForeignKey(
-        Empresa,
-        on_delete=models.CASCADE,
-        db_column='id_empresa',
-        null=True,
-        blank=True
-    )
-    ip = models.CharField(max_length=50, null=True, blank=True)
-
-    class Meta:
-        db_table = '"dm_sistema"."sesiones_ejecutivos"'
-        indexes = [
-            models.Index(fields=['fecha'], name='idx_seseje_fecha'),
-            models.Index(fields=['portal'], name='idx_seseje_portal'),
-        ]
-
-    def __str__(self):
-        return f'Sesion Ejecutivo {self.id}'
