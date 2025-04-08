@@ -3,6 +3,7 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.exceptions import PermissionDenied
 
 from .models import (
     Operador, OperadorBodega, OperadorEmpresaModulo,
@@ -26,16 +27,16 @@ import requests  # Para enviar el correo replicando la lógica del cURL en PHP
 
 # Se agrega la importación para poder ejecutar consultas SQL crudas
 from django.db import connection
-from django.http import HttpResponseForbidden
 
 
 class RestrictToReactMixin:
-    ALLOWED_ORIGIN = "http://localhost:5173"  # Cambia por el dominio real de tu aplicación React
+    ALLOWED_ORIGINS = ["http://localhost:5173", "https://desarrollo.smartgest.cl", "http://0.0.0.0:5173"]  # Cambia por los dominios reales permitidos
 
     def initial(self, request, *args, **kwargs):
         origin = request.META.get("HTTP_ORIGIN")
-        if origin != self.ALLOWED_ORIGIN:
-            return HttpResponseForbidden("Acceso denegado.")
+        if origin not in self.ALLOWED_ORIGINS:
+            # Usa el método permission_denied para retornar una respuesta DRF adecuada.
+            self.permission_denied(request, message="Acceso denegado.", code="permission_denied")
         return super().initial(request, *args, **kwargs)
 
 
