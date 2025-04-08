@@ -1154,6 +1154,17 @@ import requests  # Para enviar el correo replicando la lógica del cURL en PHP
 
 # Se agrega la importación para poder ejecutar consultas SQL crudas
 from django.db import connection
+from django.http import HttpResponseForbidden
+
+
+class RestrictToReactMixin:
+    ALLOWED_ORIGIN = "http://localhost:5173"  # Cambia por el dominio real de tu aplicación React
+
+    def initial(self, request, *args, **kwargs):
+        origin = request.META.get("HTTP_ORIGIN")
+        if origin != self.ALLOWED_ORIGIN:
+            return HttpResponseForbidden("Acceso denegado.")
+        return super().initial(request, *args, **kwargs)
 
 
 def enviar_correo_python(remitente, correo_destino, asunto, detalle):
@@ -1175,7 +1186,7 @@ def enviar_correo_python(remitente, correo_destino, asunto, detalle):
         print(f"Error al enviar el correo: {e}")
 
 
-class OperadorViewSet(viewsets.ModelViewSet):
+class OperadorViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
     queryset = Operador.objects.all()
     serializer_class = OperadorSerializer
 
@@ -1251,7 +1262,7 @@ class OperadorViewSet(viewsets.ModelViewSet):
         Si el 'cod_verificacion' coincide con la de la sesión más reciente:
          - Se eliminan todas las demás filas.
          - Se envía la cookie con el token de la sesión.
-         - Se retorna un código 200 con datos del operador.
+         - Se retorna un código 200 con datos del operador (incluyendo "modulos" inmediatamente).
         """
         operador_id = request.data.get('operador_id')
         cod_verificacion = request.data.get('cod_verificacion')
@@ -1281,6 +1292,7 @@ class OperadorViewSet(viewsets.ModelViewSet):
 
         token_jwt = sesion_reciente.token
 
+        # Eliminar todas las demás sesiones activas excepto la más reciente
         SesionActiva.objects.filter(operador_id=operador_id).exclude(id=sesion_reciente.id).delete()
 
         try:
@@ -1308,9 +1320,37 @@ class OperadorViewSet(viewsets.ModelViewSet):
             "fecha_creacion": op.fecha_creacion
         }
 
+        # -------------------------------------------------------------------
+        # AÑADIMOS AQUÍ la consulta que antes se veía solo en "get_by_cookie"
+        # De esta manera, en cuanto se verifica y se setea la cookie,
+        # retornamos inmediatamente la información de "modulos".
+        # -------------------------------------------------------------------
+        modulos = []
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT c.nombre_menu, b.id, c.icon
+                FROM dm_sistema.operador_empresa_modulos AS a
+                JOIN dm_sistema.empresa_modulos AS b ON a.empresa_modulo_id = b.id
+                JOIN dm_sistema.modulos AS c ON b.modulo_id = c.id
+                WHERE a.operador_id = %s
+                  AND b.estado = 1
+                  AND c.estado = 1
+                  AND b.empresa_id = %s
+                ORDER BY c.orden
+            """, [op.id, op.empresa.id])
+            rows = cursor.fetchall()
+            for row in rows:
+                modulos.append({
+                    "nombre_menu": row[0],
+                    "id": row[1],
+                    "icon": row[2]
+                })
+        # -------------------------------------------------------------------
+
         response_data = {
             "message": "Verificación exitosa.",
-            "operador": operator_data
+            "operador": operator_data,
+            "modulos": modulos  # <-- Se devuelven los módulos también
         }
         response = Response(response_data, status=status.HTTP_200_OK)
         response.set_cookie(
@@ -1350,37 +1390,37 @@ class OperadorViewSet(viewsets.ModelViewSet):
         return response
 
 
-class OperadorBodegaViewSet(viewsets.ModelViewSet):
+class OperadorBodegaViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
     queryset = OperadorBodega.objects.all()
     serializer_class = OperadorBodegaSerializer
 
 
-class OperadorEmpresaModuloViewSet(viewsets.ModelViewSet):
+class OperadorEmpresaModuloViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
     queryset = OperadorEmpresaModulo.objects.all()
     serializer_class = OperadorEmpresaModuloSerializer
 
 
-class OperadorEmpresaModuloMenuViewSet(viewsets.ModelViewSet):
+class OperadorEmpresaModuloMenuViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
     queryset = OperadorEmpresaModuloMenu.objects.all()
     serializer_class = OperadorEmpresaModuloMenuSerializer
 
 
-class OperadorGrupoViewSet(viewsets.ModelViewSet):
+class OperadorGrupoViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
     queryset = OperadorGrupo.objects.all()
     serializer_class = OperadorGrupoSerializer
 
 
-class OperadorPuntoVentaViewSet(viewsets.ModelViewSet):
+class OperadorPuntoVentaViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
     queryset = OperadorPuntoVenta.objects.all()
     serializer_class = OperadorPuntoVentaSerializer
 
 
-class SesionViewSet(viewsets.ModelViewSet):
+class SesionViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
     queryset = Sesion.objects.all()
     serializer_class = SesionSerializer
 
 
-class SesionActivaViewSet(viewsets.ModelViewSet):
+class SesionActivaViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
     queryset = SesionActiva.objects.all()
     serializer_class = SesionActivaSerializer
 
@@ -1388,7 +1428,7 @@ class SesionActivaViewSet(viewsets.ModelViewSet):
 # Se elimina la clase SesionEjecutivoViewSet
 
 
-class OperadorByTokenViewSet(viewsets.ViewSet):
+class OperadorByTokenViewSet(RestrictToReactMixin, viewsets.ViewSet):
     """
     GET /operadores/sesiones-activas-token/
     Obtiene la sesión activa leyendo la cookie 'token'.

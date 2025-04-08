@@ -26,6 +26,17 @@ import requests  # Para enviar el correo replicando la lógica del cURL en PHP
 
 # Se agrega la importación para poder ejecutar consultas SQL crudas
 from django.db import connection
+from django.http import HttpResponseForbidden
+
+
+class RestrictToReactMixin:
+    ALLOWED_ORIGIN = "http://localhost:5173"  # Cambia por el dominio real de tu aplicación React
+
+    def initial(self, request, *args, **kwargs):
+        origin = request.META.get("HTTP_ORIGIN")
+        if origin != self.ALLOWED_ORIGIN:
+            return HttpResponseForbidden("Acceso denegado.")
+        return super().initial(request, *args, **kwargs)
 
 
 def enviar_correo_python(remitente, correo_destino, asunto, detalle):
@@ -47,7 +58,7 @@ def enviar_correo_python(remitente, correo_destino, asunto, detalle):
         print(f"Error al enviar el correo: {e}")
 
 
-class OperadorViewSet(viewsets.ModelViewSet):
+class OperadorViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
     queryset = Operador.objects.all()
     serializer_class = OperadorSerializer
 
@@ -251,37 +262,37 @@ class OperadorViewSet(viewsets.ModelViewSet):
         return response
 
 
-class OperadorBodegaViewSet(viewsets.ModelViewSet):
+class OperadorBodegaViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
     queryset = OperadorBodega.objects.all()
     serializer_class = OperadorBodegaSerializer
 
 
-class OperadorEmpresaModuloViewSet(viewsets.ModelViewSet):
+class OperadorEmpresaModuloViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
     queryset = OperadorEmpresaModulo.objects.all()
     serializer_class = OperadorEmpresaModuloSerializer
 
 
-class OperadorEmpresaModuloMenuViewSet(viewsets.ModelViewSet):
+class OperadorEmpresaModuloMenuViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
     queryset = OperadorEmpresaModuloMenu.objects.all()
     serializer_class = OperadorEmpresaModuloMenuSerializer
 
 
-class OperadorGrupoViewSet(viewsets.ModelViewSet):
+class OperadorGrupoViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
     queryset = OperadorGrupo.objects.all()
     serializer_class = OperadorGrupoSerializer
 
 
-class OperadorPuntoVentaViewSet(viewsets.ModelViewSet):
+class OperadorPuntoVentaViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
     queryset = OperadorPuntoVenta.objects.all()
     serializer_class = OperadorPuntoVentaSerializer
 
 
-class SesionViewSet(viewsets.ModelViewSet):
+class SesionViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
     queryset = Sesion.objects.all()
     serializer_class = SesionSerializer
 
 
-class SesionActivaViewSet(viewsets.ModelViewSet):
+class SesionActivaViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
     queryset = SesionActiva.objects.all()
     serializer_class = SesionActivaSerializer
 
@@ -289,7 +300,7 @@ class SesionActivaViewSet(viewsets.ModelViewSet):
 # Se elimina la clase SesionEjecutivoViewSet
 
 
-class OperadorByTokenViewSet(viewsets.ViewSet):
+class OperadorByTokenViewSet(RestrictToReactMixin, viewsets.ViewSet):
     """
     GET /operadores/sesiones-activas-token/
     Obtiene la sesión activa leyendo la cookie 'token'.
