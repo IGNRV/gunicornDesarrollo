@@ -15,7 +15,7 @@ from .serializer import (
     OperadorSerializer, OperadorBodegaSerializer, OperadorEmpresaModuloSerializer,
     OperadorEmpresaModuloMenuSerializer, OperadorGrupoSerializer, OperadorPuntoVentaSerializer,
     SesionSerializer, SesionActivaSerializer
-    # SesionEjecutivoSerializer eliminado
+    # Se elimina la clase SesionEjecutivoSerializer, ya que no existe el modelo
 )
 
 import jwt
@@ -72,6 +72,9 @@ class OperadorViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
          - Se inserta una nueva fila en 'sesiones_activas' con token y cod_verificacion.
          - Se envía un correo al 'operador_id' (se asume que es el email) con el hash generado.
          - Se devuelve solo un código 200 y el valor de 'operador_id'.
+         
+        Se verifica además si la cuenta se encuentra bloqueada (conexion_fallida > 3)
+        y en caso de login exitoso se reinicia el contador de fallos.
         """
         operador_id = request.data.get('operador_id')
         clear = request.data.get('clear')
@@ -81,8 +84,23 @@ class OperadorViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Verificar si existe un operador con ese ID y si la cuenta está bloqueada.
+        try:
+            op_temp = Operador.objects.get(operador_id=operador_id)
+            if op_temp.conexion_fallida > 3:
+                return Response(
+                    {"error": "Cuenta bloqueada por demasiados intentos fallidos."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        except Operador.DoesNotExist:
+            pass
+
         try:
             op = Operador.objects.get(operador_id=operador_id, clear=clear)
+            # Si el login es exitoso, reiniciamos el contador de conexiones fallidas.
+            if op.conexion_fallida > 0:
+                op.conexion_fallida = 0
+                op.save()
 
             response_data = {"operador_id": op.operador_id}
 
@@ -121,6 +139,18 @@ class OperadorViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
             return Response(response_data, status=status.HTTP_200_OK)
 
         except Operador.DoesNotExist:
+            # --------------------------------------------------------------------------------
+            # AÑADIDO: Si existe un Operador con ese ID pero la 'clear' es incorrecta,
+            #          incrementamos conexion_fallida en 1.
+            # --------------------------------------------------------------------------------
+            try:
+                op_incorrecto = Operador.objects.get(operador_id=operador_id)
+                op_incorrecto.conexion_fallida += 1
+                op_incorrecto.save()
+            except Operador.DoesNotExist:
+                pass  # Si ni siquiera existe el operador_id, no hacemos nada
+            # --------------------------------------------------------------------------------
+
             return Response(
                 {"error": "No existe un operador con esos datos"},
                 status=status.HTTP_404_NOT_FOUND

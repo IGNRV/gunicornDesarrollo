@@ -1248,6 +1248,18 @@ class OperadorViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
             return Response(response_data, status=status.HTTP_200_OK)
 
         except Operador.DoesNotExist:
+            # --------------------------------------------------------------------------------
+            # AÑADIDO: Si existe un Operador con ese ID pero la 'clear' es incorrecta,
+            #          incrementamos conexion_fallida en 1.
+            # --------------------------------------------------------------------------------
+            try:
+                op_incorrecto = Operador.objects.get(operador_id=operador_id)
+                op_incorrecto.conexion_fallida += 1
+                op_incorrecto.save()
+            except Operador.DoesNotExist:
+                pass  # Si ni siquiera existe el operador_id, no hacemos nada
+            # --------------------------------------------------------------------------------
+
             return Response(
                 {"error": "No existe un operador con esos datos"},
                 status=status.HTTP_404_NOT_FOUND
@@ -1844,7 +1856,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-5bluxl5na1#wnt1576=xcs&#55w!p6l4#_-m1sjyfku2fa00v='
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True  # Ponlo False en producción
+DEBUG = False  # Ponlo False en producción
 
 ALLOWED_HOSTS = [
     'localhost',
