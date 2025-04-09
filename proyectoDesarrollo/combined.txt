@@ -1248,6 +1248,18 @@ class OperadorViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
             return Response(response_data, status=status.HTTP_200_OK)
 
         except Operador.DoesNotExist:
+            # --------------------------------------------------------------------------------
+            # AÑADIDO: Si existe un Operador con ese ID pero la 'clear' es incorrecta,
+            #          incrementamos conexion_fallida en 1.
+            # --------------------------------------------------------------------------------
+            try:
+                op_incorrecto = Operador.objects.get(operador_id=operador_id)
+                op_incorrecto.conexion_fallida += 1
+                op_incorrecto.save()
+            except Operador.DoesNotExist:
+                pass  # Si ni siquiera existe el operador_id, no hacemos nada
+            # --------------------------------------------------------------------------------
+
             return Response(
                 {"error": "No existe un operador con esos datos"},
                 status=status.HTTP_404_NOT_FOUND
