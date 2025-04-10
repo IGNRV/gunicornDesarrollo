@@ -271,10 +271,37 @@ if __name__ == '__main__':
     main()
 
 
+=== ./coreempresas/serializer.py ===
+# ./coreempresas/serializer.py
+
+from rest_framework import serializers
+from .models import Empresa
+
+class EmpresaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Empresa
+        fields = '__all__'
+
+
 === ./coreempresas/admin.py ===
 from django.contrib import admin
 
 # Register your models here.
+
+
+=== ./coreempresas/urls.py ===
+# ./coreempresas/urls.py
+
+from django.urls import path, include
+from rest_framework import routers
+from .views import EmpresaViewSet
+
+router = routers.DefaultRouter()
+router.register(r'empresa', EmpresaViewSet, basename='empresa')
+
+urlpatterns = [
+    path('', include(router.urls)),
+]
 
 
 === ./coreempresas/__init__.py ===
@@ -386,9 +413,17 @@ class Migration(migrations.Migration):
 
 
 === ./coreempresas/views.py ===
+# ./coreempresas/views.py
+
+from rest_framework import viewsets
+from .models import Empresa
+from .serializer import EmpresaSerializer
 from django.shortcuts import render
 
-# Create your views here.
+# ViewSet para el modelo Empresa que permite listar, crear, actualizar y eliminar.
+class EmpresaViewSet(viewsets.ModelViewSet):
+    queryset = Empresa.objects.all()
+    serializer_class = EmpresaSerializer
 
 
 === ./coreempresas/models.py ===
@@ -1143,7 +1178,7 @@ from .serializer import (
     OperadorSerializer, OperadorBodegaSerializer, OperadorEmpresaModuloSerializer,
     OperadorEmpresaModuloMenuSerializer, OperadorGrupoSerializer, OperadorPuntoVentaSerializer,
     SesionSerializer, SesionActivaSerializer
-    # SesionEjecutivoSerializer eliminado
+    # Se elimina la clase SesionEjecutivoSerializer, ya que no existe el modelo
 )
 
 import jwt
@@ -1199,6 +1234,9 @@ class OperadorViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
          - Se inserta una nueva fila en 'sesiones_activas' con token y cod_verificacion.
          - Se envía un correo al 'operador_id' (se asume que es el email) con el hash generado.
          - Se devuelve solo un código 200 y el valor de 'operador_id'.
+         
+        Se verifica además si la cuenta se encuentra bloqueada (conexion_fallida > 3)
+        y en caso de login exitoso se reinicia el contador de fallos.
         """
         operador_id = request.data.get('operador_id')
         clear = request.data.get('clear')
@@ -1208,8 +1246,23 @@ class OperadorViewSet(RestrictToReactMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Verificar si existe un operador con ese ID y si la cuenta está bloqueada.
+        try:
+            op_temp = Operador.objects.get(operador_id=operador_id)
+            if op_temp.conexion_fallida > 3:
+                return Response(
+                    {"error": "Cuenta bloqueada por demasiados intentos fallidos."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        except Operador.DoesNotExist:
+            pass
+
         try:
             op = Operador.objects.get(operador_id=operador_id, clear=clear)
+            # Si el login es exitoso, reiniciamos el contador de conexiones fallidas.
+            if op.conexion_fallida > 0:
+                op.conexion_fallida = 0
+                op.save()
 
             response_data = {"operador_id": op.operador_id}
 
